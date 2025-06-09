@@ -1,0 +1,82 @@
+[
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "Both Teams to Score (No)",
+        "prediction": "5.0",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "Over/Under 3.0 (Over)",
+        "prediction": "23.2",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "Over/Under 3.0 (Under)",
+        "prediction": "23.2",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "Over/Under 3.0 (Under)",
+        "prediction": "23.2",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "Over/Under 3.0 (Over)",
+        "prediction": "23.2",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "3-Way Result (Away Win)",
+        "prediction": "38.6",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:48",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "3-Way Result (Draw)",
+        "prediction": "15.0",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:47",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "3-Way Result (Home Win)",
+        "prediction": "46.4",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:47",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "First Team to Score (Home)",
+        "prediction": "43.3",
+        "actual_result": "Pending"
+    },
+    {
+        "date": "2025-06-09 11:47",
+        "league": "La Liga",
+        "match": "Barcelona vs Real Madrid",
+        "bet": "First Team to Score (Away)",
+        "prediction": "56.7",
+        "actual_result": "Pending"
+    }
+]

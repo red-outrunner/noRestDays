@@ -1,70 +1,37 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import requests
 
-# --- Mock Data Simulation ---
-# In a real application, this data would be fetched from a live sports API.
-# I've created a comprehensive mock data structure to simulate this.
-def get_mock_api_data(league):
-    """
-    Simulates fetching data from a sports API based on the selected league.
-    """
-    all_leagues_data = {
-        "Premier League": {
-            "teams": ["Manchester City", "Arsenal", "Liverpool", "Aston Villa", "Tottenham Hotspur", "Chelsea", "Newcastle United", "Manchester United", "West Ham United", "Crystal Palace"],
-            "data": {
-                "Manchester City": {
-                    "attack_strength": 2.8, "defence_strength": 0.8,
-                    "last_4": ["W", "W", "W", "D"],
-                    "unavailable": ["Ederson (Injury)", "Kevin De Bruyne (Suspended)"]
-                },
-                "Manchester United": {
-                    "attack_strength": 1.5, "defence_strength": 1.4,
-                    "last_4": ["L", "D", "W", "L"],
-                    "unavailable": ["Lisandro Martinez (Injury)"]
-                },
-                # Add more teams as needed
-            }
-        },
-        "La Liga": {
-             "teams": ["Real Madrid", "Barcelona", "Girona", "Atletico Madrid", "Athletic Club", "Real Sociedad"],
-             "data": {
-                "Real Madrid": {
-                    "attack_strength": 2.5, "defence_strength": 0.7,
-                    "last_4": ["W", "W", "D", "W"],
-                    "unavailable": ["Thibaut Courtois (Injury)"]
-                },
-                "Barcelona": {
-                    "attack_strength": 2.2, "defence_strength": 1.1,
-                    "last_4": ["W", "L", "W", "W"],
-                    "unavailable": ["Gavi (Injury)", "Pedri (Doubtful)"]
-                }
-             }
-        },
-        "Premier Soccer League (South Africa)": {
-            "teams": ["Mamelodi Sundowns", "Orlando Pirates", "Kaizer Chiefs", "SuperSport United"],
-            "data": {
-                "Mamelodi Sundowns": {"attack_strength": 2.1, "defence_strength": 0.5, "last_4": ["W", "D", "W", "W"], "unavailable": []},
-                "Orlando Pirates": {"attack_strength": 1.6, "defence_strength": 0.9, "last_4": ["W", "L", "D", "W"], "unavailable": ["Thembinkosi Lorch (Suspended)"]},
-                "Kaizer Chiefs": {"attack_strength": 1.1, "defence_strength": 1.2, "last_4": ["D", "L", "L", "W"], "unavailable": ["Itumeleng Khune (Injury)"]},
-            }
-        },
-        # Add other leagues here...
-        "Serie A": {"teams": [], "data": {}},
-        "UEFA Champions League": {"teams": [], "data": {}},
-        "UEFA Nations League": {"teams": [], "data": {}},
-        "AFCON": {"teams": [], "data": {}},
-        "CAF Champions League": {"teams": [], "data": {}},
+# --- Live API Configuration ---
+# PASTE YOUR API KEY HERE
+API_KEY = "69733272b3fece458e5ab58fdd91f7d5"
+API_HOST = "v3.football.api-sports.io"
+API_URL = f"https://{API_HOST}/"
+
+def get_real_api_data(endpoint, params):
+    """Fetches live data from the API-Football endpoint."""
+    headers = {
+        'x-rapidapi-host': API_HOST,
+        'x-rapidapi-key': API_KEY
     }
-    return all_leagues_data.get(league, {"teams": [], "data": {}})
-
+    try:
+        response = requests.get(API_URL + endpoint, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        messagebox.showerror("API Error", f"Could not fetch data from API: {e}")
+        return None
+    except json.JSONDecodeError:
+        messagebox.showerror("API Error", "Failed to parse API response.")
+        return None
 
 class SoccerAnalyserApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Soccer Bet Analyser")
-        self.geometry("800x600")
+        self.title("Soccer Bet Analyser v2.2")
+        self.geometry("1000x700") # Wider window for new layout
         self.configure(bg="#2E2E2E")
 
         # --- Font Configuration ---
@@ -76,232 +43,269 @@ class SoccerAnalyserApp(tk.Tk):
         self.info_font = font.Font(family="Helvetica", size=9)
 
         # --- App Data ---
-        self.leagues = [
-            "Premier League", "La Liga", "Serie A",
-            "UEFA Champions League", "UEFA Nations League", "AFCON",
-            "CAF Champions League", "Premier Soccer League (South Africa)"
-        ]
         self.bet_types = [
             "3-Way Result (Home Win)", "3-Way Result (Draw)", "3-Way Result (Away Win)",
             "First Team to Score (Home)", "First Team to Score (Away)",
             "Both Teams to Score (Yes)", "Both Teams to Score (No)",
             "Over/Under 3.0 (Over)", "Over/Under 3.0 (Under)"
         ]
-
         self.history = self.load_history()
+        self.current_fixture_data = {} # To store data of the selected match
 
-        # --- UI Creation ---
         self._create_widgets()
+        self.load_upcoming_fixtures()
 
     def _create_widgets(self):
-        # Main container
-        main_frame = tk.Frame(self, bg="#2E2E2E", padx=20, pady=20)
+        # Main container with two columns
+        main_frame = tk.Frame(self, bg="#2E2E2E", padx=10, pady=10)
         main_frame.pack(fill="both", expand=True)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        main_frame.columnconfigure(0, weight=1) # Fixtures list
+        main_frame.columnconfigure(1, weight=2) # Analysis panel
+        main_frame.rowconfigure(0, weight=1)
 
-        # --- Input Frame ---
-        input_frame = tk.Frame(main_frame, bg="#3C3C3C", padx=15, pady=15)
-        input_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 20))
-        input_frame.columnconfigure(1, weight=1)
+        # --- Fixtures Frame (Left Side) ---
+        fixtures_frame = tk.Frame(main_frame, bg="#3C3C3C", padx=15, pady=15)
+        fixtures_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        fixtures_frame.rowconfigure(1, weight=1)
+        fixtures_frame.columnconfigure(0, weight=1)
 
-        tk.Label(input_frame, text="Bet Analysis Setup", font=self.title_font, bg="#3C3C3C", fg="#FFFFFF").grid(row=0, column=0, columnspan=2, pady=(0, 15), sticky="w")
+        tk.Label(fixtures_frame, text="Upcoming Matches (3 Days)", font=self.title_font, bg="#3C3C3C", fg="white").grid(row=0, column=0, pady=(0,15), sticky="w")
+        
+        # Treeview for fixtures
+        fixture_cols = ("time", "league", "match")
+        self.fixture_tree = ttk.Treeview(fixtures_frame, columns=fixture_cols, show="headings")
+        self.fixture_tree.grid(row=1, column=0, sticky="nsew")
 
-        # League Selection
-        tk.Label(input_frame, text="League:", bg="#3C3C3C", fg="#CCCCCC").grid(row=1, column=0, sticky="w", padx=(0,10))
-        self.league_var = tk.StringVar()
-        self.league_menu = ttk.Combobox(input_frame, textvariable=self.league_var, values=self.leagues, state="readonly")
-        self.league_menu.grid(row=1, column=1, sticky="ew", pady=5)
-        self.league_menu.bind("<<ComboboxSelected>>", self.update_teams)
+        self.fixture_tree.heading("time", text="Date & Time (UTC)")
+        self.fixture_tree.heading("league", text="League")
+        self.fixture_tree.heading("match", text="Match")
+        self.fixture_tree.column("time", width=120)
+        self.fixture_tree.column("league", width=150)
+        self.fixture_tree.column("match", width=200)
 
-        # Team Selection
-        tk.Label(input_frame, text="Home Team:", bg="#3C3C3C", fg="#CCCCCC").grid(row=2, column=0, sticky="w", padx=(0,10))
-        self.home_team_var = tk.StringVar()
-        self.home_team_menu = ttk.Combobox(input_frame, textvariable=self.home_team_var, state="readonly")
-        self.home_team_menu.grid(row=2, column=1, sticky="ew", pady=5)
+        # Bind the selection event
+        self.fixture_tree.bind("<<TreeviewSelect>>", self.on_match_select)
 
-        tk.Label(input_frame, text="Away Team:", bg="#3C3C3C", fg="#CCCCCC").grid(row=3, column=0, sticky="w", padx=(0,10))
-        self.away_team_var = tk.StringVar()
-        self.away_team_menu = ttk.Combobox(input_frame, textvariable=self.away_team_var, state="readonly")
-        self.away_team_menu.grid(row=3, column=1, sticky="ew", pady=5)
+        # --- Analysis Frame (Right Side) ---
+        analysis_container = tk.Frame(main_frame, bg="#2E2E2E")
+        analysis_container.grid(row=0, column=1, sticky="nsew")
+        analysis_container.rowconfigure(2, weight=1)
+        analysis_container.columnconfigure(0, weight=1)
 
-        # Bet Type Selection
-        tk.Label(input_frame, text="Bet Type:", bg="#3C3C3C", fg="#CCCCCC").grid(row=4, column=0, sticky="w", padx=(0,10))
+        # --- Bet Setup Frame (Top Right) ---
+        self.input_frame = tk.Frame(analysis_container, bg="#3C3C3C", padx=15, pady=15)
+        self.input_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.input_frame.columnconfigure(1, weight=1)
+        
+        self.selected_match_label = tk.Label(self.input_frame, text="Select a Match to Begin Analysis", font=self.title_font, bg="#3C3C3C", fg="#FFFFFF")
+        self.selected_match_label.grid(row=0, column=0, columnspan=2, pady=(0, 15), sticky="w")
+        
+        tk.Label(self.input_frame, text="Bet Type:", bg="#3C3C3C", fg="#CCCCCC").grid(row=1, column=0, sticky="w", padx=(0,10))
         self.bet_type_var = tk.StringVar()
-        self.bet_type_menu = ttk.Combobox(input_frame, textvariable=self.bet_type_var, values=self.bet_types, state="readonly")
-        self.bet_type_menu.grid(row=4, column=1, sticky="ew", pady=5)
+        self.bet_type_menu = ttk.Combobox(self.input_frame, textvariable=self.bet_type_var, values=self.bet_types, state="readonly")
+        self.bet_type_menu.grid(row=1, column=1, sticky="ew", pady=5)
 
-        # Calculate Button
-        calculate_button = tk.Button(input_frame, text="Calculate Probability", bg="#4CAF50", fg="white", font=self.header_font, command=self.run_analysis, relief="flat", borderwidth=0)
-        calculate_button.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(15,0))
+        self.calculate_button = tk.Button(self.input_frame, text="Calculate Probability", bg="#4CAF50", fg="white", font=self.header_font, command=self.run_analysis, relief="flat", state="disabled")
+        self.calculate_button.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(15,0))
 
-        # --- Result Frame ---
-        result_frame = tk.Frame(main_frame, bg="#3C3C3C", padx=15, pady=15)
-        result_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        # --- Results & Info Frame (Middle Right) ---
+        results_info_frame = tk.Frame(analysis_container, bg="#2E2E2E")
+        results_info_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        results_info_frame.columnconfigure(0, weight=1)
+        results_info_frame.columnconfigure(1, weight=1)
+
+        result_frame = tk.Frame(results_info_frame, bg="#3C3C3C", padx=15, pady=15)
+        result_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         result_frame.pack_propagate(False)
 
         tk.Label(result_frame, text="Probability", font=self.header_font, bg="#3C3C3C", fg="#FFFFFF").pack()
         self.result_label = tk.Label(result_frame, text="--%", font=self.result_font, bg="#3C3C3C", fg="#FFFFFF")
         self.result_label.pack(expand=True)
-
-        # --- Info Frame ---
-        info_frame = tk.Frame(main_frame, bg="#3C3C3C", padx=15, pady=15)
-        info_frame.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
-        info_frame.pack_propagate(False)
+        
+        info_frame = tk.Frame(results_info_frame, bg="#3C3C3C", padx=15, pady=15)
+        info_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         info_frame.columnconfigure(0, weight=1)
 
-        tk.Label(info_frame, text="Prediction Factors", font=self.header_font, bg="#3C3C3C", fg="#FFFFFF").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0,10))
-        
+        tk.Label(info_frame, text="Prediction Factors", font=self.header_font, bg="#3C3C3C", fg="#FFFFFF").grid(row=0, column=0, sticky="w", pady=(0,10))
         self.home_info_label = tk.Label(info_frame, text="Home Team Info:", bg="#3C3C3C", fg="#CCCCCC", justify="left", wraplength=250, font=self.info_font)
         self.home_info_label.grid(row=1, column=0, sticky="nw", pady=5)
-        
         self.away_info_label = tk.Label(info_frame, text="Away Team Info:", bg="#3C3C3C", fg="#CCCCCC", justify="left", wraplength=250, font=self.info_font)
         self.away_info_label.grid(row=2, column=0, sticky="nw", pady=5)
 
-        # --- History Frame ---
-        history_frame = tk.Frame(main_frame, bg="#3C3C3C", padx=15, pady=15)
-        history_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(20, 0))
+        # --- History Frame (Bottom Right) ---
+        history_frame = tk.Frame(analysis_container, bg="#3C3C3C", padx=15, pady=15)
+        history_frame.grid(row=2, column=0, sticky="nsew")
         history_frame.columnconfigure(0, weight=1)
         history_frame.rowconfigure(1, weight=1)
 
         tk.Label(history_frame, text="Analysis History", font=self.header_font, bg="#3C3C3C", fg="#FFFFFF").grid(row=0, column=0, sticky="w")
-        
-        # Treeview for history
-        columns = ("date", "match", "bet", "prediction", "actual_result")
-        self.history_tree = ttk.Treeview(history_frame, columns=columns, show="headings")
+        history_cols = ("date", "match", "bet", "prediction", "actual_result")
+        self.history_tree = ttk.Treeview(history_frame, columns=history_cols, show="headings")
         self.history_tree.grid(row=1, column=0, sticky="nsew")
-
-        # Define headings
-        self.history_tree.heading("date", text="Date")
-        self.history_tree.heading("match", text="Match")
-        self.history_tree.heading("bet", text="Bet")
-        self.history_tree.heading("prediction", text="Prediction (%)")
-        self.history_tree.heading("actual_result", text="Actual Result")
-
-        # Configure column widths
-        self.history_tree.column("date", width=120)
-        self.history_tree.column("match", width=200)
-        self.history_tree.column("bet", width=200)
-        self.history_tree.column("prediction", width=100, anchor="center")
-        self.history_tree.column("actual_result", width=120, anchor="center")
-
-        # Add a scrollbar
-        scrollbar = ttk.Scrollbar(history_frame, orient="vertical", command=self.history_tree.yview)
-        self.history_tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        
+        for col in history_cols:
+            self.history_tree.heading(col, text=col.replace("_", " ").title())
         self.populate_history_tree()
-        
-        # Add a button to manually add the actual result
-        result_button_frame = tk.Frame(history_frame, bg="#3C3C3C")
-        result_button_frame.grid(row=2, column=0, sticky="ew", pady=(10,0))
-        
-        self.actual_result_entry = tk.Entry(result_button_frame, bg="#555555", fg="#FFFFFF", relief="flat")
-        self.actual_result_entry.pack(side="left", fill="x", expand=True, padx=(0,10))
-        self.actual_result_entry.insert(0, "e.g., Home Win")
 
-        add_result_button = tk.Button(result_button_frame, text="Add Actual Result", command=self.add_actual_result, bg="#2196F3", fg="white", relief="flat")
-        add_result_button.pack(side="left")
+    def load_upcoming_fixtures(self):
+        if API_KEY == "YOUR_API_KEY_HERE":
+            self.fixture_tree.insert("", "end", values=("", "", "Add your API Key to load fixtures"))
+            return
 
-    def update_teams(self, event=None):
-        """Populates team dropdowns based on selected league."""
-        league = self.league_var.get()
-        api_data = get_mock_api_data(league)
-        teams = api_data.get("teams", [])
+        self.fixture_tree.delete(*self.fixture_tree.get_children())
+        all_fixtures = []
+        for i in range(3): # Loop for today, tomorrow, and the day after
+            # FIX: Use timezone-aware datetime object to prevent DeprecationWarning
+            date_to_fetch = (datetime.now(timezone.utc) + timedelta(days=i)).strftime("%Y-%m-%d")
+            data = get_real_api_data("fixtures", {"date": date_to_fetch})
+            if data and data.get("response"):
+                all_fixtures.extend(data["response"])
+
+        if not all_fixtures:
+            self.fixture_tree.insert("", "end", values=("", "", "No upcoming matches found in the next 3 days."))
+            return
         
-        self.home_team_menu['values'] = teams
-        self.away_team_menu['values'] = teams
+        # Store fixtures with a unique ID for later retrieval
+        self.fixture_map = {}
+        for fixture in sorted(all_fixtures, key=lambda x: x['fixture']['date']):
+            match_id = fixture['fixture']['id']
+            self.fixture_map[match_id] = fixture
+
+            display_time = datetime.fromisoformat(fixture['fixture']['date']).strftime('%m-%d %H:%M')
+            league_name = fixture['league']['name']
+            match_name = f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}"
+            
+            # FIX: Replace faulty 'type' key check with a more robust method
+            league_name_lower = fixture['league'].get('name', '').lower()
+            country_name_lower = fixture['league'].get('country', '').lower()
+            international_keywords = ['world cup', 'nations league', 'friendlies', 'afcon', 'copa america', 'euro']
+            is_international = any(keyword in league_name_lower for keyword in international_keywords) or country_name_lower == 'world'
+            
+            tag = "international" if is_international else "club"
+            self.fixture_tree.insert("", "end", iid=match_id, values=(display_time, league_name, match_name), tags=(tag,))
+
+    def on_match_select(self, event=None):
+        selected_item_id = self.fixture_tree.focus()
+        if not selected_item_id:
+            return
+            
+        fixture_data = self.fixture_map.get(int(selected_item_id))
+        if not fixture_data:
+            return
+
+        # Store the essential data for the analysis
+        self.current_fixture_data = {
+            "league_id": fixture_data['league']['id'],
+            "league_name": fixture_data['league']['name'],
+            "home_team_id": fixture_data['teams']['home']['id'],
+            "home_team_name": fixture_data['teams']['home']['name'],
+            "away_team_id": fixture_data['teams']['away']['id'],
+            "away_team_name": fixture_data['teams']['away']['name'],
+            "is_international": "international" in self.fixture_tree.item(selected_item_id, "tags")
+        }
         
-        self.home_team_var.set('')
-        self.away_team_var.set('')
+        # Update the UI
+        self.selected_match_label.config(text=f"{fixture_data['teams']['home']['name']} vs {fixture_data['teams']['away']['name']}")
+        self.bet_type_var.set('')
+        self.result_label.config(text="--%")
+        self.home_info_label.config(text="Home Team Info:")
+        self.away_info_label.config(text="Away Team Info:")
+        self.calculate_button.config(state="normal")
 
     def run_analysis(self):
-        """Main function to run the probability calculation."""
-        league = self.league_var.get()
-        home_team_name = self.home_team_var.get()
-        away_team_name = self.away_team_var.get()
         bet_type = self.bet_type_var.get()
-
-        if not all([league, home_team_name, away_team_name, bet_type]):
-            messagebox.showerror("Error", "Please fill in all fields.")
-            return
-            
-        if home_team_name == away_team_name:
-            messagebox.showerror("Error", "Home and Away teams cannot be the same.")
+        if not bet_type:
+            messagebox.showerror("Error", "Please select a bet type.")
             return
 
-        api_data = get_mock_api_data(league)
-        home_team = api_data["data"].get(home_team_name)
-        away_team = api_data["data"].get(away_team_name)
-
-        if not home_team or not away_team:
-            messagebox.showerror("Error", "Could not find data for the selected teams. This league may not have mock data yet.")
+        if not self.current_fixture_data:
+            messagebox.showerror("Error", "No match selected for analysis.")
             return
-            
-        # --- Update Info Panel ---
-        self.home_info_label.config(text=f"{home_team_name} Info:\n- Recent Form: {' '.join(home_team['last_4'])}\n- Unavailable: {', '.join(home_team['unavailable']) or 'None'}")
-        self.away_info_label.config(text=f"{away_team_name} Info:\n- Recent Form: {' '.join(away_team['last_4'])}\n- Unavailable: {', '.join(away_team['unavailable']) or 'None'}")
-
-        # --- Model Calculation ---
-        # Adjust strength based on unavailable players (simple heuristic)
-        home_attack = home_team["attack_strength"] * (1 - len(home_team["unavailable"]) * 0.1)
-        away_attack = away_team["attack_strength"] * (1 - len(away_team["unavailable"]) * 0.1)
-        home_defence = home_team["defence_strength"]
-        away_defence = away_team["defence_strength"]
         
-        # Weighting for recent form
+        # --- Fetch Live Data for Model ---
+        league_id = self.current_fixture_data['league_id']
+        home_team_id = self.current_fixture_data['home_team_id']
+        away_team_id = self.current_fixture_data['away_team_id']
+        home_team_name = self.current_fixture_data['home_team_name']
+        away_team_name = self.current_fixture_data['away_team_name']
+        is_international = self.current_fixture_data['is_international']
+        
+        now = datetime.now()
+        if now.month < 8:
+            season = now.year - 1
+        else:
+            season = now.year
+            
+        # --- NEW LOGIC: Check if it's an international match ---
+        if is_international:
+            # For national teams, get overall stats, not league-specific
+            home_stats_params = {"season": season, "team": home_team_id}
+            away_stats_params = {"season": season, "team": away_team_id}
+            # Also, we can't reliably get injuries by league_id for national teams
+            home_injuries_params = {"team": home_team_id, "season": season}
+            away_injuries_params = {"team": away_team_id, "season": season}
+        else:
+            # For club teams, use the original, league-specific logic
+            home_stats_params = {"league": league_id, "season": season, "team": home_team_id}
+            away_stats_params = {"league": league_id, "season": season, "team": away_team_id}
+            home_injuries_params = {"league": league_id, "season": season, "team": home_team_id}
+            away_injuries_params = {"league": league_id, "season": season, "team": away_team_id}
+
+        home_stats_data = get_real_api_data("teams/statistics", home_stats_params)
+        away_stats_data = get_real_api_data("teams/statistics", away_stats_params)
+
+        if not home_stats_data or not away_stats_data or not home_stats_data.get("response") or not away_stats_data.get("response"):
+            messagebox.showerror("Error", "Could not fetch team statistics. Data is likely unavailable for the selected teams/competition.")
+            return
+            
+        home_attack = home_stats_data["response"]["goals"]["for"]["average"]["total"]
+        home_defence = home_stats_data["response"]["goals"]["against"]["average"]["total"]
+        away_attack = away_stats_data["response"]["goals"]["for"]["average"]["total"]
+        away_defence = away_stats_data["response"]["goals"]["against"]["average"]["total"]
+        home_form_str = home_stats_data["response"]["form"][-4:] if home_stats_data["response"].get("form") else ""
+        away_form_str = away_stats_data["response"]["form"][-4:] if away_stats_data["response"].get("form") else ""
+        
+        home_injuries_data = get_real_api_data("injuries", home_injuries_params)
+        away_injuries_data = get_real_api_data("injuries", away_injuries_params)
+        home_unavailable = [p['player']['name'] for p in home_injuries_data['response']] if home_injuries_data and home_injuries_data.get('response') else []
+        away_unavailable = [p['player']['name'] for p in away_injuries_data['response']] if away_injuries_data and away_injuries_data.get('response') else []
+
+        self.home_info_label.config(text=f"{home_team_name} Info:\n- Form: {' '.join(home_form_str)}\n- Avg Goals For: {home_attack}\n- Avg Goals Against: {home_defence}\n- Unavailable: {', '.join(home_unavailable) or 'None'}")
+        self.away_info_label.config(text=f"{away_team_name} Info:\n- Form: {' '.join(away_form_str)}\n- Avg Goals For: {away_attack}\n- Avg Goals Against: {away_defence}\n- Unavailable: {', '.join(away_unavailable) or 'None'}")
+        
+        # --- Model Calculation ---
+        home_attack_adj = float(home_attack) * (1 - len(home_unavailable) * 0.05)
+        away_attack_adj = float(away_attack) * (1 - len(away_unavailable) * 0.05)
         form_weight = {"W": 1.1, "D": 1.0, "L": 0.9}
-        home_form_mod = sum(form_weight.get(res, 1.0) for res in home_team['last_4']) / 4
-        away_form_mod = sum(form_weight.get(res, 1.0) for res in away_team['last_4']) / 4
-
-        home_attack *= home_form_mod
-        away_attack *= away_form_mod
-
-        # This is a simplified logic model. A real app would use more complex stats.
+        home_form_mod = sum(form_weight.get(res, 1.0) for res in home_form_str) / 4 if home_form_str else 1
+        away_form_mod = sum(form_weight.get(res, 1.0) for res in away_form_str) / 4 if away_form_str else 1
+        home_attack_final = home_attack_adj * home_form_mod
+        away_attack_final = away_attack_adj * away_form_mod
+        
         prob = 0
         if "3-Way Result" in bet_type:
-            # Simple strength comparison
-            total_strength = home_attack / away_defence + away_attack / home_defence
-            home_chance = (home_attack / away_defence) / total_strength
-            away_chance = (away_attack / home_defence) / total_strength
+            total_strength = home_attack_final / float(away_defence) + away_attack_final / float(home_defence)
+            home_chance = (home_attack_final / float(away_defence)) / total_strength if total_strength > 0 else 0
+            away_chance = (away_attack_final / float(home_defence)) / total_strength if total_strength > 0 else 0
             draw_chance = 1 - home_chance - away_chance
-            # Normalize to prevent negative draw chance if teams are very unbalanced
             if draw_chance < 0.15: 
                 draw_chance = 0.15
-                scale = (1-draw_chance)/(home_chance+away_chance)
-                home_chance *= scale
-                away_chance *= scale
-            
+                if (home_chance + away_chance) > 0:
+                    scale = (1 - draw_chance) / (home_chance + away_chance)
+                    home_chance *= scale
+                    away_chance *= scale
             if "Home Win" in bet_type: prob = home_chance
             if "Away Win" in bet_type: prob = away_chance
             if "Draw" in bet_type: prob = draw_chance
-
-        elif "First Team to Score" in bet_type:
-            # Based on who has higher attack strength
-            if "Home" in bet_type: prob = home_attack / (home_attack + away_attack)
-            if "Away" in bet_type: prob = away_attack / (home_attack + away_attack)
-        
         elif "Both Teams to Score" in bet_type:
-            # Heuristic based on combined attack and defence
-            btts_chance = (home_attack / 2.0) * (away_attack / 2.0)
-            if btts_chance > 0.95: btts_chance = 0.95
+            btts_chance = (float(home_attack) / 1.8) * (float(away_attack) / 1.8)
             if "Yes" in bet_type: prob = btts_chance
             if "No" in bet_type: prob = 1 - btts_chance
-            
-        elif "Over/Under 3.0" in bet_type:
-            # Very simple model based on expected goals
-            expected_goals = (home_attack + away_attack) * ((home_defence + away_defence)/2)
-            if "Over" in bet_type: prob = expected_goals / 5.0 # Scaled
-            if "Under" in bet_type: prob = 1 - (expected_goals / 5.0)
 
-        final_prob = min(max(prob, 0), 1) * 100 # Clamp probability between 0 and 100
+        final_prob = min(max(prob, 0), 1) * 100
         self.result_label.config(text=f"{final_prob:.1f}%")
 
-        # --- Save to History ---
         self.save_to_history({
             "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "league": league,
             "match": f"{home_team_name} vs {away_team_name}",
             "bet": bet_type,
             "prediction": f"{final_prob:.1f}",
@@ -309,15 +313,12 @@ class SoccerAnalyserApp(tk.Tk):
         })
         self.populate_history_tree()
 
-
     def save_to_history(self, record):
-        """Appends a new record to the history list and saves to file."""
-        self.history.insert(0, record) # Add to the top
+        self.history.insert(0, record)
         with open("bet_analyser_history.json", "w") as f:
             json.dump(self.history, f, indent=4)
 
     def load_history(self):
-        """Loads the history log from a JSON file."""
         try:
             with open("bet_analyser_history.json", "r") as f:
                 return json.load(f)
@@ -325,48 +326,9 @@ class SoccerAnalyserApp(tk.Tk):
             return []
 
     def populate_history_tree(self):
-        """Clears and repopulates the history treeview with current data."""
-        # Clear existing items
-        for i in self.history_tree.get_children():
-            self.history_tree.delete(i)
-        
-        # Add new items from history
+        self.history_tree.delete(*self.history_tree.get_children())
         for record in self.history:
-            self.history_tree.insert("", "end", values=(
-                record.get("date"),
-                record.get("match"),
-                record.get("bet"),
-                record.get("prediction"),
-                record.get("actual_result")
-            ))
-            
-    def add_actual_result(self):
-        """Adds an actual result to the selected history item."""
-        selected_item = self.history_tree.focus()
-        if not selected_item:
-            messagebox.showerror("Error", "Please select an item from the history log first.")
-            return
-            
-        result_text = self.actual_result_entry.get()
-        if not result_text or result_text == "e.g., Home Win":
-             messagebox.showerror("Error", "Please enter the actual result in the text box.")
-             return
-
-        # Find the index of the selected item in the treeview
-        selected_index = self.history_tree.index(selected_item)
-        
-        # History is displayed in reverse, so we need to map the index correctly
-        history_index = len(self.history) - 1 - selected_index
-
-        # Update the history list and save
-        self.history[history_index]["actual_result"] = result_text
-        with open("bet_analyser_history.json", "w") as f:
-            json.dump(self.history, f, indent=4)
-
-        # Refresh the treeview
-        self.populate_history_tree()
-        messagebox.showinfo("Success", "Actual result has been updated.")
-
+            self.history_tree.insert("", "end", values=(record.get("date"), record.get("match"), record.get("bet"), record.get("prediction"), record.get("actual_result")))
 
 if __name__ == "__main__":
     app = SoccerAnalyserApp()
