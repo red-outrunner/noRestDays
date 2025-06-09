@@ -30,7 +30,7 @@ def get_real_api_data(endpoint, params):
 class SoccerAnalyserApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Soccer Bet Analyser v2.2")
+        self.title("Soccer Bet Analyser v2.4")
         self.geometry("1000x700") # Wider window for new layout
         self.configure(bg="#2E2E2E")
 
@@ -153,8 +153,7 @@ class SoccerAnalyserApp(tk.Tk):
 
         self.fixture_tree.delete(*self.fixture_tree.get_children())
         all_fixtures = []
-        for i in range(3): # Loop for today, tomorrow, and the day after
-            # FIX: Use timezone-aware datetime object to prevent DeprecationWarning
+        for i in range(3):
             date_to_fetch = (datetime.now(timezone.utc) + timedelta(days=i)).strftime("%Y-%m-%d")
             data = get_real_api_data("fixtures", {"date": date_to_fetch})
             if data and data.get("response"):
@@ -164,7 +163,6 @@ class SoccerAnalyserApp(tk.Tk):
             self.fixture_tree.insert("", "end", values=("", "", "No upcoming matches found in the next 3 days."))
             return
         
-        # Store fixtures with a unique ID for later retrieval
         self.fixture_map = {}
         for fixture in sorted(all_fixtures, key=lambda x: x['fixture']['date']):
             match_id = fixture['fixture']['id']
@@ -174,7 +172,6 @@ class SoccerAnalyserApp(tk.Tk):
             league_name = fixture['league']['name']
             match_name = f"{fixture['teams']['home']['name']} vs {fixture['teams']['away']['name']}"
             
-            # FIX: Replace faulty 'type' key check with a more robust method
             league_name_lower = fixture['league'].get('name', '').lower()
             country_name_lower = fixture['league'].get('country', '').lower()
             international_keywords = ['world cup', 'nations league', 'friendlies', 'afcon', 'copa america', 'euro']
@@ -192,7 +189,6 @@ class SoccerAnalyserApp(tk.Tk):
         if not fixture_data:
             return
 
-        # Store the essential data for the analysis
         self.current_fixture_data = {
             "league_id": fixture_data['league']['id'],
             "league_name": fixture_data['league']['name'],
@@ -203,7 +199,6 @@ class SoccerAnalyserApp(tk.Tk):
             "is_international": "international" in self.fixture_tree.item(selected_item_id, "tags")
         }
         
-        # Update the UI
         self.selected_match_label.config(text=f"{fixture_data['teams']['home']['name']} vs {fixture_data['teams']['away']['name']}")
         self.bet_type_var.set('')
         self.result_label.config(text="--%")
@@ -221,83 +216,129 @@ class SoccerAnalyserApp(tk.Tk):
             messagebox.showerror("Error", "No match selected for analysis.")
             return
         
-        # --- Fetch Live Data for Model ---
-        league_id = self.current_fixture_data['league_id']
+        try:
+            home_team_id = self.current_fixture_data['home_team_id']
+            away_team_id = self.current_fixture_data['away_team_id']
+            
+            now = datetime.now()
+            season = now.year - 1 if now.month < 8 else now.year
+            
+            home_stats_params = {"season": season, "team": home_team_id}
+            away_stats_params = {"season": season, "team": away_team_id}
+            
+            home_stats_data = get_real_api_data("teams/statistics", home_stats_params)
+            away_stats_data = get_real_api_data("teams/statistics", away_stats_params)
+
+            # --- Primary Analysis ---
+            if home_stats_data.get("response") and away_stats_data.get("response"):
+                self.analyze_with_stats(home_stats_data, away_stats_data)
+            else:
+                # --- Fallback to H2H ---
+                self.analyze_with_h2h()
+
+        except Exception as e:
+            messagebox.showerror("Calculation Error", f"An unexpected error occurred: {e}")
+
+    def analyze_with_stats(self, home_stats_data, away_stats_data):
+        """Calculates probability based on detailed team statistics."""
+        home_team_name = self.current_fixture_data['home_team_name']
+        away_team_name = self.current_fixture_data['away_team_name']
+
+        home_stats = home_stats_data["response"]
+        away_stats = away_stats_data["response"]
+        
+        home_attack = home_stats.get("goals", {}).get("for", {}).get("average", {}).get("total", "0.0") or "0.0"
+        home_defence = home_stats.get("goals", {}).get("against", {}).get("average", {}).get("total", "1.0") or "1.0"
+        away_attack = away_stats.get("goals", {}).get("for", {}).get("average", {}).get("total", "0.0") or "0.0"
+        away_defence = away_stats.get("goals", {}).get("against", {}).get("average", {}).get("total", "1.0") or "1.0"
+        
+        home_form_str = home_stats.get("form", "")[-4:] if home_stats.get("form") else ""
+        away_form_str = away_stats.get("form", "")[-4:] if away_stats.get("form") else ""
+        
+        home_unavailable = [] # Simplified for this example, injuries require separate calls
+        away_unavailable = []
+
+        self.home_info_label.config(text=f"{home_team_name} Info:\n- Method: Season Stats\n- Form: {' '.join(home_form_str)}\n- Avg Gls For: {home_attack}")
+        self.away_info_label.config(text=f"{away_team_name} Info:\n- Method: Season Stats\n- Form: {' '.join(away_form_str)}\n- Avg Gls For: {away_attack}")
+        
+        self.calculate_and_display_prob(float(home_attack), float(home_defence), float(away_attack), float(away_defence), home_unavailable, away_unavailable)
+
+    def analyze_with_h2h(self):
+        """Fallback: Calculates probability based on Head-to-Head history."""
         home_team_id = self.current_fixture_data['home_team_id']
         away_team_id = self.current_fixture_data['away_team_id']
         home_team_name = self.current_fixture_data['home_team_name']
         away_team_name = self.current_fixture_data['away_team_name']
-        is_international = self.current_fixture_data['is_international']
+
+        h2h_data = get_real_api_data("fixtures/headtohead", {"h2h": f"{home_team_id}-{away_team_id}", "last": "10"})
         
-        now = datetime.now()
-        if now.month < 8:
-            season = now.year - 1
-        else:
-            season = now.year
-            
-        # --- NEW LOGIC: Check if it's an international match ---
-        if is_international:
-            # For national teams, get overall stats, not league-specific
-            home_stats_params = {"season": season, "team": home_team_id}
-            away_stats_params = {"season": season, "team": away_team_id}
-            # Also, we can't reliably get injuries by league_id for national teams
-            home_injuries_params = {"team": home_team_id, "season": season}
-            away_injuries_params = {"team": away_team_id, "season": season}
-        else:
-            # For club teams, use the original, league-specific logic
-            home_stats_params = {"league": league_id, "season": season, "team": home_team_id}
-            away_stats_params = {"league": league_id, "season": season, "team": away_team_id}
-            home_injuries_params = {"league": league_id, "season": season, "team": home_team_id}
-            away_injuries_params = {"league": league_id, "season": season, "team": away_team_id}
-
-        home_stats_data = get_real_api_data("teams/statistics", home_stats_params)
-        away_stats_data = get_real_api_data("teams/statistics", away_stats_params)
-
-        if not home_stats_data or not away_stats_data or not home_stats_data.get("response") or not away_stats_data.get("response"):
-            messagebox.showerror("Error", "Could not fetch team statistics. Data is likely unavailable for the selected teams/competition.")
+        if not h2h_data or not h2h_data.get("response"):
+            messagebox.showerror("Error", "Could not fetch H2H data. No analysis possible.")
             return
-            
-        home_attack = home_stats_data["response"]["goals"]["for"]["average"]["total"]
-        home_defence = home_stats_data["response"]["goals"]["against"]["average"]["total"]
-        away_attack = away_stats_data["response"]["goals"]["for"]["average"]["total"]
-        away_defence = away_stats_data["response"]["goals"]["against"]["average"]["total"]
-        home_form_str = home_stats_data["response"]["form"][-4:] if home_stats_data["response"].get("form") else ""
-        away_form_str = away_stats_data["response"]["form"][-4:] if away_stats_data["response"].get("form") else ""
-        
-        home_injuries_data = get_real_api_data("injuries", home_injuries_params)
-        away_injuries_data = get_real_api_data("injuries", away_injuries_params)
-        home_unavailable = [p['player']['name'] for p in home_injuries_data['response']] if home_injuries_data and home_injuries_data.get('response') else []
-        away_unavailable = [p['player']['name'] for p in away_injuries_data['response']] if away_injuries_data and away_injuries_data.get('response') else []
 
-        self.home_info_label.config(text=f"{home_team_name} Info:\n- Form: {' '.join(home_form_str)}\n- Avg Goals For: {home_attack}\n- Avg Goals Against: {home_defence}\n- Unavailable: {', '.join(home_unavailable) or 'None'}")
-        self.away_info_label.config(text=f"{away_team_name} Info:\n- Form: {' '.join(away_form_str)}\n- Avg Goals For: {away_attack}\n- Avg Goals Against: {away_defence}\n- Unavailable: {', '.join(away_unavailable) or 'None'}")
+        h2h_fixtures = h2h_data["response"]
+        home_wins = 0
+        away_wins = 0
+        draws = 0
+
+        for fixture in h2h_fixtures:
+            if fixture["teams"]["home"]["winner"]:
+                if fixture["teams"]["home"]["id"] == home_team_id:
+                    home_wins += 1
+                else:
+                    away_wins += 1
+            elif fixture["teams"]["away"]["winner"]:
+                if fixture["teams"]["away"]["id"] == away_team_id:
+                    away_wins += 1
+                else:
+                    home_wins += 1
+            else:
+                draws += 1
         
-        # --- Model Calculation ---
-        home_attack_adj = float(home_attack) * (1 - len(home_unavailable) * 0.05)
-        away_attack_adj = float(away_attack) * (1 - len(away_unavailable) * 0.05)
-        form_weight = {"W": 1.1, "D": 1.0, "L": 0.9}
-        home_form_mod = sum(form_weight.get(res, 1.0) for res in home_form_str) / 4 if home_form_str else 1
-        away_form_mod = sum(form_weight.get(res, 1.0) for res in away_form_str) / 4 if away_form_str else 1
-        home_attack_final = home_attack_adj * home_form_mod
-        away_attack_final = away_attack_adj * away_form_mod
+        total_matches = len(h2h_fixtures)
+        if total_matches == 0:
+            messagebox.showerror("Error", "No H2H history found. No analysis possible.")
+            return
+
+        self.home_info_label.config(text=f"{home_team_name} Info:\n- Method: H2H History\n- Last {total_matches} games:\n- Wins: {home_wins}")
+        self.away_info_label.config(text=f"{away_team_name} Info:\n- Method: H2H History\n- Last {total_matches} games:\n- Wins: {away_wins}")
+
+        # Simple H2H model: probability is the ratio of past results.
+        # We assign a synthetic attack/defence strength based on this.
+        home_attack = 1.0 + (home_wins / total_matches)
+        away_attack = 1.0 + (away_wins / total_matches)
+        home_defence = 1.0 + (away_wins / total_matches)
+        away_defence = 1.0 + (home_wins / total_matches)
+
+        self.calculate_and_display_prob(home_attack, home_defence, away_attack, away_defence, [], [])
+
+
+    def calculate_and_display_prob(self, home_attack, home_defence, away_attack, away_defence, home_unavailable, away_unavailable):
+        """Shared logic to calculate and display final probability."""
+        bet_type = self.bet_type_var.get()
+        home_team_name = self.current_fixture_data['home_team_name']
+        away_team_name = self.current_fixture_data['away_team_name']
+
+        home_attack_adj = home_attack * (1 - len(home_unavailable) * 0.05)
+        away_attack_adj = away_attack * (1 - len(away_unavailable) * 0.05)
         
         prob = 0
         if "3-Way Result" in bet_type:
-            total_strength = home_attack_final / float(away_defence) + away_attack_final / float(home_defence)
-            home_chance = (home_attack_final / float(away_defence)) / total_strength if total_strength > 0 else 0
-            away_chance = (away_attack_final / float(home_defence)) / total_strength if total_strength > 0 else 0
+            total_strength = (home_attack_adj / away_defence) + (away_attack_adj / home_defence)
+            home_chance = (home_attack_adj / away_defence) / total_strength if total_strength > 0 else 0
+            away_chance = (away_attack_adj / home_defence) / total_strength if total_strength > 0 else 0
             draw_chance = 1 - home_chance - away_chance
-            if draw_chance < 0.15: 
+            if draw_chance < 0.15:
                 draw_chance = 0.15
                 if (home_chance + away_chance) > 0:
-                    scale = (1 - draw_chance) / (home_chance + away_chance)
+                    scale = (1-draw_chance) / (home_chance + away_chance)
                     home_chance *= scale
                     away_chance *= scale
             if "Home Win" in bet_type: prob = home_chance
             if "Away Win" in bet_type: prob = away_chance
             if "Draw" in bet_type: prob = draw_chance
         elif "Both Teams to Score" in bet_type:
-            btts_chance = (float(home_attack) / 1.8) * (float(away_attack) / 1.8)
+            btts_chance = (home_attack / 1.8) * (away_attack / 1.8)
             if "Yes" in bet_type: prob = btts_chance
             if "No" in bet_type: prob = 1 - btts_chance
 
